@@ -21,7 +21,11 @@ week_11 <- shaming %>%
   mutate(treatment = fct_relevel(treatment, "Control")) %>% 
   mutate(solo = ifelse(hh_size == 1, TRUE, FALSE)) %>% 
   select(-general_04, -no_of_names, -birth_year, -hh_size) %>% 
-  sample_n(10000)
+  sample_n(10000) %>%
+  mutate(primary_02 = case_when(primary_02 == "Yes" ~ 1,
+                                primary_02 == "No" ~ 0)) %>%
+  mutate(primary_04 = case_when(primary_04 == "Yes" ~ 1,
+                                primary_04 == "No" ~ 0))
 
 week_11_split <- initial_split(week_11)
 week_11_train <- training(week_11_split)
@@ -33,24 +37,148 @@ week_11_folds <- vfold_cv(week_11_train, v = 5)
 ## Scene 1
 
 **Prompt:** Explore a variety models which explain `primary_06` as a function of the variables in our data set. Make sure to explore some interaction terms. 
+```{r}
+fit <- stan_glm(primary_06 ~ treatment,
+                data = week_11_train,
+                refresh = 0)
+
+print(fit, details = FALSE, digits = 5)
+
+fit2 <- stan_glm(primary_06 ~ sex + age + sex*age,
+                data = week_11_train,
+                refresh = 0)
+
+print(fit2, details = FALSE, digits = 5)
+
+fit3 <- stan_glm(primary_06 ~ primary_02 + primary_04,
+                data = week_11_train,
+                refresh = 0,
+                family = binomial())
+
+print(fit3, details = FALSE, digits = 5)
+
+fit4 <- stan_glm(primary_06 ~ primary_02 + primary_04 + age + sex + age*sex,
+                data = week_11_train,
+                refresh = 0)
+
+print(fit4, details = FALSE, digits = 5)
+
+fit5 <- stan_glm(primary_06 ~ primary_02 + primary_04 + treatment + age + treatment*sex,
+                data = week_11_train,
+                refresh = 0)
+
+print(fit5, details = FALSE, digits = 5)
+
+fit6 <- stan_glm(primary_06 ~ treatment + sex + age + treatment*sex,
+                data = week_11_train,
+                refresh = 0)
+
+print(fit6, details = FALSE, digits = 5)
+
+fit7 <- lm(primary_06 ~ treatment + sex*age*primary_04*primary_02*general_02,
+           data = week_11_train)
+
+print(fit7, details = FALSE, digits = 5)
+```
 
 * Come up with at least two models that a) you like and would be willing to defend and b) are somewhat different from one another. The two most common model types in these situations are "simple" and "full". The former includes a minimum number of variables. The latter errs on the side of variable inclusion and the creation of interaction terms.
+```{r}
+fit <- stan_glm(primary_06 ~ treatment,
+                data = week_11_train,
+                refresh = 0)
+
+print(fit, details = FALSE, digits = 5)
+
+fit8 <- stan_glm(primary_06 ~ treatment + sex + age + treatment*age,
+                data = week_11_train,
+                refresh = 0)
+
+print(fit8, details = FALSE, digits = 5)
+```
 
 * Which data set should we use for this? Why?
 
+We should use the week_11_train data so that we don't overfit our data by using the entire set.
+
 * What does it mean if, for example, the coefficient of `treatmentNeighbors` varies across models?
+
+It means treatmentNeighbors has a different effect in relation to other variables
 
 * Do things change if we start using all the data? Is there a danger in doing so?
 
+Yes, things change. We risk overfitting our data and model will become rigid and unapplicable to new data/future predictions
 
 ## Scene 2
 
 **Prompt:** Compare your two models using cross-validation.
+```{r}
+recipe1 <- recipe(primary_06 ~ treatment + sex + age,
+                 data = week_11_train) %>%
+  step_interact(~ starts_with("treatment"):age) %>%
+  step_dummy(all_nominal())
+
+model1 <-
+  linear_reg() %>% 
+  set_engine("stan") %>%
+  set_mode("regression")
+
+wfl1 <- workflow() %>% 
+  add_model(model1) %>%
+  add_recipe(recipe1)
+  # fit(data = week_11_train) %>%
+  # predict(new_data = week_11_test) %>%
+  # bind_cols(week_11_test %>% select(fte)) %>%
+  # metrics(truth = fte, estimate = `.pred`)
+
+metrics1 <- wfl1 %>% 
+  fit_resamples(resamples = week_11_folds) %>% 
+  collect_metrics()
+
+
+recipe2 <- recipe(primary_06 ~ treatment,
+                 data = week_11_train) %>%
+                 step_dummy(all_nominal())
+
+model2 <-
+  linear_reg() %>% 
+  set_engine("stan") %>%
+  set_mode("regression")
+
+wfl2 <- workflow() %>% 
+  add_model(model2) %>%
+  add_recipe(recipe2)
+  # fit(data = week_11_train) %>%
+  # predict(new_data = week_11_test) %>%
+  # bind_cols(week_11_test %>% select(fte)) %>%
+  # metrics(truth = fte, estimate = `.pred`)
+
+metrics2 <- wfl2 %>% 
+  fit_resamples(resamples = week_11_folds) %>% 
+  collect_metrics()
+
+```
 
 
 ## Scene 3
 
 **Prompt:** Fit the model and then estimate what RMSE will be in the future.
+```{r}
+wfl1 <- workflow() %>% 
+  add_model(model1) %>%
+  add_recipe(recipe1) %>%
+  fit(data = week_11_train) %>%
+  predict(new_data = week_11_test) %>%
+  bind_cols(week_11_test %>% select(primary_06)) %>%
+  metrics(truth = primary_06, estimate = `.pred`)
+
+wfl2 <- workflow() %>% 
+  add_model(model2) %>%
+  add_recipe(recipe2) %>%
+  fit(data = week_11_train) %>%
+  predict(new_data = week_11_test) %>%
+  bind_cols(week_11_test %>% select(primary_06)) %>%
+  metrics(truth = primary_06, estimate = `.pred`)
+```
 
 * If you have time, redo all the important steps above with the full data set.
 
